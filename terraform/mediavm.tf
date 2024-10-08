@@ -31,6 +31,7 @@ resource "proxmox_vm_qemu" "mediavm1" {
         model = "virtio"
     }
 
+    # Disks - ide3 is required for cloud-init to work correctly, sata0 needs to be same as the template, sata1 is the data drive we merge with nfs share
     disks {
         ide {
             ide3 {
@@ -45,6 +46,13 @@ resource "proxmox_vm_qemu" "mediavm1" {
                     format = "raw"
                     storage = "local-lvm"
                     size = "50G"
+                }
+            }
+            sata1 {
+                disk {
+                    format = "raw"
+                    storage = "external"
+                    size = "100G"
                 }
             }
         }
@@ -86,7 +94,8 @@ resource "proxmox_vm_qemu" "mediavm1" {
             "while [ ! -f /var/lib/cloud/instance/boot-finished ]; do echo 'Waiting for cloud-init...'; sleep 1; done",
             "ip a",
             "chmod +x /tmp/init.sh && bash /tmp/init.sh",
-            "ansible-playbook ~/homeserver/ansible/playbooks/install-mergerfs.yaml"
+            "ansible-playbook ~/homeserver/ansible/playbooks/install-mergerfs.yaml",
+            "ansible-playbook ~/homeserver/ansible/playbooks/add-mounts.yaml",
         ]
     }
 }

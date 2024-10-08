@@ -1,0 +1,1 @@
+media   -fstype=nfs,rw,soft,intr,timeo=600,retrans=2,retry=2    192.168.0.222:/mnt/Main/Media

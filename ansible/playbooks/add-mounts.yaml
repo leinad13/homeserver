@@ -1,0 +1,16 @@
+---
+- name: Playbook to add MediaVM mounts
+  become: true
+  hosts: localhost
+  connection: local
+  tasks:
+    - name: Install autofs
+      ansible.builtin.apt:
+        name: autofs
+        state: latest
+      become: true
+    - name: Setup auto.nfs file
+      ansible.builtin.copy:
+        src: ~/homeserver/conf/auto.nfs
+        dest: /etc/auto.nfs
+        backup: true
