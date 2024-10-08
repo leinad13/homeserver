@@ -6,6 +6,9 @@
   vars:
     mount_src: /dev/sdb
     mount_path: /data
+    media_src: /data/media:/mnt/media
+    media_path: /media/media
+    media_opts: cache.files=partial,dropcacheonclose=true,category.create=ff,moveonenospc=true,minfreespace=1G
   tasks:
     - name: Install autofs
       ansible.builtin.apt:
@@ -20,15 +23,22 @@
     - name: Create List of mounted drives
       set_fact:
         mounted_devices: "{{ ansible_mounts|json_query('[].device') }}"
-    - name: Create file system
+    - name: Create file system - data drive
       filesystem:
         fstype: ext4
         dev: "{{ mount_src }}"
       when: mount_src not in mounted_devices
-    - name: Mount file system
+    - name: Mount file system - data drive
       mount:
         path: "{{ mount_path }}"
         src: "{{ mount_src }}"
         fstype: ext4
         state: mounted
       when: mount_src not in mounted_devices
+    - name: Mount mergerfs filesystem
+      mount:
+        path: "{{ media_path }}"
+        src: "{{ media_src }}"
+        fstype: fuse.mergerfs
+        state: mounted
+        opts: "{{ media_opts }}"
