@@ -11,6 +11,6 @@
       become: true
     - name: Setup auto.nfs file
       ansible.builtin.copy:
-        src: ~/homeserver/conf/auto.nfs
+        src: ~/homeserver/conf/autofs/auto.nfs
         dest: /etc/auto.nfs
         backup: true
