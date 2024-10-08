@@ -1,0 +1,570 @@
+#version: "3.9"
+# Excluded version in order to use features in "docker compose" instead of docker-compose
+
+# Extension Fields
+x-environment: &default-tz-puid-pgid
+  TZ: $TZ
+  PUID: $PUID
+  PGID: $PGID
+
+networks:
+  t2_proxy:
+    external:
+      name: t2_proxy
+  default:
+    driver: bridge
+
+# Services
+services:
+  dozzle:
+    container_name: dozzle
+    image: amir20/dozzle:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - 9999:8080
+    restart:
+      unless-stopped
+
+  traefik:
+    image: traefik:v2.9
+    container_name: traefik
+    ports:
+      - 80:80
+      - 443:443
+      - 8080:8082
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - $DOCKERDIR/appdata/traefik/rules:/rules
+      - $DOCKERDIR/appdata/traefik/acme/acme.json:/acme.json
+      - $DOCKERDIR/appdata/traefik/traefik.log:/traefik.log
+      - $DOCKERDIR/appdata/shared:/shared
+    networks:
+      default:
+      t2_proxy:
+        ipv4_address: 192.168.90.254
+      
+    security_opt:
+      - no-new-privileges:true
+    command: 
+      - --api.insecure=true
+      - --entryPoints.http.address=:80
+      - --entryPoints.https.address=:443
+        # Allow these IPs to set the X-Forwarded-* headers - Cloudflare IPs: https://www.cloudflare.com/ips/
+      - --entrypoints.https.forwardedHeaders.trustedIPs=173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/12,172.64.0.0/13,131.0.72.0/22
+      - --entryPoints.traefik.address=:8080
+      - --api=true
+      - --api.dashboard=true
+      - --log=true
+      - --log.level=DEBUG
+      - --accessLog=true
+      - --accessLog.filepath=/traefik.log
+      - --accessLog.bufferingSize=100
+      - --accessLog.filters.statusCodes=400-499
+      - --providers.docker=true
+      - --providers.docker.endpoint=unix:///var/run/docker.sock
+      - --providers.docker.defaultrule=Host(`{{ index .Labels "com.docker.compose.service" }}.$DOMAINNAME`)
+      - --providers.docker.exposedByDefault=false
+      - --providers.file.directory=/rules
+      # - --certificatesResolvers.dns-cloudflare.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory # LetsEncrypt Staging Server - uncomment when testing
+      - --certificatesResolvers.dns-cloudflare.acme.email=$CLOUDFLARE_EMAIL
+      - --certificatesResolvers.dns-cloudflare.acme.storage=/acme.json
+      - --certificatesResolvers.dns-cloudflare.acme.dnsChallenge.provider=cloudflare
+      - --certificatesResolvers.dns-cloudflare.acme.dnsChallenge.resolvers=1.1.1.1:53,1.0.0.1:53
+    environment:
+      - CF_API_EMAIL=$CLOUDFLARE_EMAIL
+      - CF_API_KEY=$CLOUDFLARE_API_KEY
+    labels:
+      - "traefik.enable=true"
+      # HTTP-to-HTTPS Redirect
+      - "traefik.http.routers.http-catchall.entrypoints=http"
+      - "traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)"
+      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      # HTTP Routers
+      - "traefik.http.routers.traefik-rtr.entrypoints=https"
+      - "traefik.http.routers.traefik-rtr.rule=Host(`traefik.$DOMAINNAME`)"
+      - "traefik.http.routers.traefik-rtr.tls=true"
+      # - "traefik.http.routers.traefik-rtr.tls.certresolver=dns-cloudflare" # Comment out this line after first run of traefik to force the use of wildcard certs
+      - "traefik.http.routers.traefik-rtr.tls.domains[0].main=$DOMAINNAME"
+      - "traefik.http.routers.traefik-rtr.tls.domains[0].sans=*.$DOMAINNAME"
+#      - "traefik.http.routers.traefik-rtr.tls.domains[1].main=$SECONDDOMAINNAME" # Pulls main cert for second domain
+#      - "traefik.http.routers.traefik-rtr.tls.domains[1].sans=*.$SECONDDOMAINNAME" # Pulls wildcard cert for second domain
+      ## Services - API
+      - "traefik.http.routers.traefik-rtr.service=api@internal"
+      ## Middlewares
+      - "traefik.http.routers.traefik-rtr.middlewares=chain-oauth@file"
+      ## Middlewares Basic Auth
+      # - "traefik.http.routers.traefik-rtr.middlewares=middlewares-secure-headers@file,middlewares-rate-limit@file,middlewares-basic-auth@file"
+
+  oauth:
+    container_name: oauth
+    image: thomseddon/traefik-forward-auth:latest
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - t2_proxy
+    environment:
+      - CLIENT_ID=$GOOGLE_CLIENT_ID
+      - CLIENT_SECRET=$GOOGLE_CLIENT_SECRET
+      - SECRET=$OAUTH_SECRET
+      - COOKIE_DOMAIN=$DOMAINNAME
+      - INSECURE_COOKIE=false
+      - AUTH_HOST=oauth.$DOMAINNAME
+      - URL_PATH=/_oauth
+      - WHITELIST=$MY_EMAIL,$MY_EMAIL2
+      - LOG_LEVEL=info
+      - LOG_FORMAT=text
+      - LIFETIME=604800 # 30 days
+    labels:
+      - "traefik.enable=true"
+      ## HTTP Routers
+      - "traefik.http.routers.oauth-rtr.entrypoints=https"
+      - "traefik.http.routers.oauth-rtr.rule=Host(`oauth.$DOMAINNAME`)"
+      - "traefik.http.routers.oauth-rtr.tls=true"
+      ## HTTP Services
+      - "traefik.http.routers.oauth-rtr.service=oauth-svc"
+      - "traefik.http.services.oauth-svc.loadbalancer.server.port=4181"
+      ## Middlewares
+      - "traefik.http.routers.oauth-rtr.middlewares=chain-oauth@file"
+
+  # portainer
+  portainer:
+    container_name: Portainer
+    image: portainer/portainer-ce:latest
+    command: -H unix:///var/run/docker.sock
+    ports:
+      - 9000:9000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - $DOCKERDIR/appdata/portainer/data:/data
+    environment:
+      - TZ=$TZ
+    restart:
+      unless-stopped
+
+  #Heimdall
+  heimdall:
+    container_name: Heimdall
+    image: linuxserver/heimdall
+    networks:
+      - t2_proxy
+    environment:
+      - TZ=$TZ
+      - PUID=$PUID
+      - PGID=$PGID
+    volumes:
+      - $DOCKERDIR/appdata/heimdall/config:/config
+#    ports:
+#      - 80:80
+#      - 443:443
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      ## HTTP Routers
+      - "traefik.http.routers.heimdall-rtr.entrypoints=https"
+      - "traefik.http.routers.heimdall-rtr.rule=Host(`heimdall.$DOMAINNAME`)"
+      - "traefik.http.routers.heimdall-rtr.tls=true"
+      ## Middlewares
+      - "traefik.http.routers.heimdall-rtr.middlewares=chain-oauth@file" 
+      ## HTTP Services
+      - "traefik.http.routers.heimdall-rtr.service=heimdall-svc"
+      - "traefik.http.services.heimdall-svc.loadbalancer.server.port=80"
+
+  cloudflare-ddns:
+    container_name: cloudflare-ddns
+    image: oznu/cloudflare-ddns:latest
+    restart: always
+    environment:
+      - API_KEY=$CLOUDFLARE_DDNS_API_KEY
+      - ZONE=$DOMAINNAME
+      - PROXIED=true
+      - PUID=$PUID
+      - PGID=$PGID
+
+  # gluetun VPN
+  gluetun:
+    container_name: gluetun
+    image: qmcgaw/gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    volumes:
+      - $DOCKERDIR/appdata/gluetun:/gluetun
+    environment:
+      - TZ=$TZ
+      - VPN_SERVICE_PROVIDER=expressvpn
+      - OPENVPN_USER=$EXPRESSVPN_OPENVPN_USER
+      - OPENVPN_PASSWORD=$EXPRESSVPN_OPENVPN_PASS
+      - SERVER_COUNTRIES=UK
+      - HTTPPROXY=on
+      - HTTPPROXY_LOG=on
+      - HTTPPROXY_USER=$HTTPPROXY_USER
+      - HTTPPROXY_PASSWORD=$HTTPPROXY_PASSWORD
+      - HTTPPROXY_STEALTH=on
+    ports:
+      - 8081:8081 #qbittorrent
+      - 8888:8888 #http proxy
+      - 5299:5299 #lazylibrarian
+      - 6789:6789 #nzbget
+    restart:
+      unless-stopped
+
+  # #expressvpn
+  # expressvpn:
+  #   container_name: ExpressVPN
+  #   image: misioslav/expressvpn:latest
+  #   restart: unless-stopped
+  #   ports:
+  #     - 8081:8081
+  #   environment:
+  #     - WHITELIST_DNS=1.1.1.1,8.8.8.8
+  #     - CODE=$EXPRESSVPN_CODE
+  #     - SERVER=smart
+  #   cap_add:
+  #     - NET_ADMIN
+  #   devices:
+  #   - /dev/net/tun
+  #   stdin_open: true
+  #   tty: true
+  #   command: /bin/bash
+  #   privileged: true
+
+  #qbittorrent
+  qbittorrent:
+    container_name: qbittorrent
+    image: lscr.io/linuxserver/qbittorrent:latest
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+        restart: true
+    environment:
+      - TZ=$TZ
+      - PUID=$PUID
+      - PGID=$PGID
+      - WEBUI_PORT=8081
+    volumes:
+      - $DOCKERDIR/appdata/qbittorrent/config:/config
+      - $DOWNLOADSDIR:/downloads
+
+  #Prowlarr
+  prowlarr:
+    container_name: Prowlarr
+    image: lscr.io/linuxserver/prowlarr:latest
+    environment:
+      - TZ=$TZ
+      - PUID=$PUID
+      - PGID=$PGID
+    volumes:
+      - $DOCKERDIR/appdata/prowlarr/config:/config
+    ports:
+      - 9696:9696 #prowlarr
+    restart:
+      unless-stopped
+
+  # sonarr
+  sonarr:
+    container_name: Sonarr
+    image: lscr.io/linuxserver/sonarr:latest
+    environment:
+      - TZ=$TZ
+      - PUID=$PUID
+      - PGID=$PGID
+    volumes: 
+      - $DOCKERDIR/appdata/sonarr/config:/config
+      - $NASDIR/TV:/tv
+      - $DOWNLOADSDIR:/downloads
+    ports:
+      - 8989:8989
+    restart:
+      unless-stopped
+
+  # sonarr v4 test
+#  sonarrv4:
+#    container_name: Sonarrv4
+#    image: lscr.io/linuxserver/sonarr:develop
+#    environment:
+#      - TZ=$TZ
+#      - PUID=$PUID
+#      - PGID=$PGID
+#    volumes:
+#      - $DOCKERDIR/appdata/sonarrv4/config:/config
+#      - $NASDIR/TV:/tv
+#      - $DOWNLOADSDIR:/downloads
+#    ports:
+#      - 8989:8989
+
+  # radarr
+  radarr:
+    container_name: radarr
+    image: lscr.io/linuxserver/radarr:latest
+    environment:
+      - TZ=$TZ
+      - PUID=$PUID
+      - PGID=$PGID
+    volumes:
+      - $DOCKERDIR/appdata/radarr/config:/config
+      - $NASDIR/Films:/movies
+      - $DOWNLOADSDIR:/downloads
+    networks:
+      - default
+    ports:
+      - 7878:7878
+    restart:
+      unless-stopped
+    labels:
+      - "traefik.enable=true"
+      ## HTTP Routers
+      - "traefik.http.routers.radarr-rtr.entrypoints=https"
+      - "traefik.http.routers.radarr-rtr.rule=Host(`radarr.$DOMAINNAME`)"
+      - "traefik.http.routers.radarr-rtr.tls=true"
+      ## Middlewares
+      - "traefik.http.routers.radarr-rtr.middlewares=chain-oauth@file" 
+      ## HTTP Services
+      - "traefik.http.routers.radarr-rtr.service=radarr-svc"
+      - "traefik.http.services.radarr-svc.loadbalancer.server.port=7878"
+
+  # plex
+  plex:
+    container_name: plex
+    image: lscr.io/linuxserver/plex:latest
+    network_mode: host
+    environment:
+      - TZ=$TZ
+      - PUID=$PUID
+      - PGID=$PGID
+      - VERSION=docker
+    volumes:
+      - /data/plex/config:/config
+      - $NASDIR:/nas
+    restart:
+      unless-stopped
+
+  # cronicle
+  # https://github.com/cronicle-edge/cronicle-edge/tree/main/Docker
+  # Waiting for master server error fix - https://github.com/jhuckaby/Cronicle/issues/36
+  cronicle:
+    container_name: cronicle
+    image: cronicle/cronicle:edge
+    hostname: cronicle-master
+    environment:
+      - TZ=$TZ
+      - CRONICLE_manager=1
+      - CRONICLE_secret_key=$CRONICLEKEY
+    volumes:
+      - $DOCKERDIR/appdata/cronicle/data:/opt/cronicle/data
+      - $DOCKERDIR/appdata/cronicle/logs:/opt/cronicle/logs
+      - $DOCKERDIR/appdata/cronicle/plugins:/opt/cronicle/plugins
+    command: manager
+    ports:
+      - 3012:3012
+    restart:
+      unless-stopped
+
+  bind9:
+    container_name: bind9
+    image: ubuntu/bind9:latest
+    environment:
+      - BIND9_USER=root
+      - TZ=$TZ
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+    volumes:
+      - $DOCKERDIR/appdata/bind9/config:/etc/bind
+      - $DOCKERDIR/appdata/bind9/cache:/var/cache/bind
+      - $DOCKERDIR/appdata/bind9/records:/var/lib/bind
+    restart: always
+    
+  ombi:
+    image: lscr.io/linuxserver/ombi:latest
+    container_name: ombi
+    networks:
+      - t2_proxy
+    hostname: ombi
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=$TZ
+    volumes:
+      - $DOCKERDIR/appdata/config:/config
+    ports:
+      - 3579:3579
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      ## HTTP Routers
+      - "traefik.http.routers.request-rtr.entrypoints=https"
+      - "traefik.http.routers.request-rtr.rule=Host(`request.$DOMAINNAME`)"
+      - "traefik.http.routers.request-rtr.tls=true"
+      ## Middlewares
+      - "traefik.http.routers.request-rtr.middlewares=chain-oauth@file" 
+      ## HTTP Services
+      - "traefik.http.routers.request-rtr.service=request-svc"
+      - "traefik.http.services.request-svc.loadbalancer.server.port=3579"
+    
+
+  # calibre-web:
+  #   container_name: calibre-web
+  #   image: lscr.io/linuxserver/calibre-web:latest
+  #   environment: 
+  #     - TZ=$TZ
+  #     - PUID=$PUID
+  #     - PGID=$PGID
+  #     - DOCKER_MODS=linuxserver/mods:universal-calibre
+  #   volumes:
+  #     - $DOCKERDIR/appdata/calibre-web/config:/config
+  #     - $NASDIR/Books:/books
+  #   ports:
+  #     - 8083:8083
+  #   restart: unless-stopped
+
+  # lazylibrarian:
+  #   container_name: lazylibrarian
+  #   image: lscr.io/linuxserver/lazylibrarian:latest
+  #   network_mode: service:gluetun
+  #   depends_on:
+  #     gluetun:
+  #       condition: service_healthy
+  #       restart: true
+  #   environment:
+  #     - TZ=$TZ
+  #     - PGID=$PGID
+  #     - PUID=$PUID
+  #   volumes:
+  #     - $DOCKERDIR/appdata/lazylibrarian/config:/config
+  #     - $NASDIR/Books:/books
+  #     - $DOWNLOADSDIR:/downloads
+  
+  nzbget:
+    container_name: nzb
+    image: lscr.io/linuxserver/nzbget:latest
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+        restart: true
+    environment:
+      - TZ=$TZ
+      - PGID=$PGID
+      - PUID=$PUID
+    volumes:
+      - $DOCKERDIR/appdata/nzbget/config:/config
+      - $DOWNLOADSDIR:/downloads
+    restart: unless-stopped
+
+  # lidarr:
+  #   container_name: lidarr
+  #   image: lscr.io/linuxserver/lidarr:latest
+  #   environment:
+  #     - TZ=$TZ
+  #     - PUID=$PUID
+  #     - PGID=$PGID
+  #   volumes:
+  #     - $DOCKERDIR/appdata/config:/config
+  #     - /media/usbdrive/music:/music
+  #     - $DOWNLOADSDIR:/downloads
+  #   ports:
+  #     - 8686:8686
+  #   restart: unless-stopped
+
+  whoami:
+    image: containous/whoami
+    networks:
+      - t2_proxy
+    labels:
+    - "traefik.enable=true"
+    ## HTTP Routers
+    - "traefik.http.routers.whoami-rtr.entrypoints=https"
+    - "traefik.http.routers.whoami-rtr.rule=Host(`whoami.$DOMAINNAME`)"
+    - "traefik.http.routers.whoami-rtr.tls=true"
+    ## Middlewares
+    - "traefik.http.routers.whoami-rtr.middlewares=chain-oauth@file" 
+    ## HTTP Services
+    - "traefik.http.routers.whoami-rtr.service=whoami-svc"
+    - "traefik.http.services.whoami-svc.loadbalancer.server.port=80"
+
+  mariadb:
+    container_name: mariadb
+    image: linuxserver/mariadb:latest
+    restart: always
+    networks:
+      - t2_proxy
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - $DOCKERDIR/appdata/mariadb/data:/config
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - PGID=$PGID
+      - PUID=$PUID
+      - MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
+  
+  guacd:
+    image: guacamole/guacd
+    container_name: guacd
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - t2_proxy
+
+  guacamole:
+    image: guacamole/guacamole:latest
+    container_name: guacamole
+    restart: unless-stopped
+    networks:
+      - t2_proxy
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      GUACD_HOSTNAME: guacd
+      MYSQL_HOSTNAME: mariadb
+      MYSQL_PORT: $DB_PORT
+      MYSQL_DATABASE: guacamole
+      MYSQL_USER: $GUAC_MYSQL_USER
+      MYSQL_PASSWORD: $GUAC_MYSQL_PASSWORD
+    labels:
+      - "traefik.enable=true"
+      ## HTTP Routers
+      - "traefik.http.routers.guac-rtr.entrypoints=https"
+      - "traefik.http.routers.guac-rtr.rule=Host(`guac.$DOMAINNAME`)"
+      - "traefik.http.routers.guac-rtr.tls=true"
+      ## Middlewares
+      - "traefik.http.routers.guac-rtr.middlewares=chain-oauth@file" 
+      ## HTTP Services
+      - "traefik.http.routers.guac-rtr.service=guac-svc"
+      - "traefik.http.services.guac-svc.loadbalancer.server.port=8080"
+
+  upsnap:
+    container_name: upsnap
+    image: ghcr.io/seriousm4x/upsnap:4
+    networks:
+      - t2_proxy
+    security_opt:
+      - no-new-privileges
+    restart: unless-stopped
+    volumes:
+      - $DOCKERDIR/appdata/upsnap/data:/app/pb_data
+    environment:
+      - TZ=$TZ
+      - UPSNAP_INTERVAL=@every 10s
+      - UPSNAP_SCAN_RANGE=192.168.0.0/24
+      - UPSNAP_SCAN_TIMEOUT=500ms
+      - UPSNAP_PING_PRIVILEGED=false
+    labels:
+      - "traefik.enable=true"
+      ## HTTP Routers
+      - "traefik.http.routers.upsnap-rtr.entrypoints=https"
+      - "traefik.http.routers.upsnap-rtr.rule=Host(`up.$DOMAINNAME`)"
+      - "traefik.http.routers.upsnap-rtr.tls=true"
+      ## Middlewares
+      - "traefik.http.routers.upsnap-rtr.middlewares=chain-oauth@file" 
+      ## HTTP Services
+      - "traefik.http.routers.upsnap-rtr.service=upsnap-svc"
+      - "traefik.http.services.upsnap-svc.loadbalancer.server.port=8090"
+

@@ -1,0 +1,1 @@
+packer build -var-file='.\credentials.pkr.hcl' .\ubuntu-server-mediavm.pkr.hcl

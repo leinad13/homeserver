@@ -1,0 +1,9 @@
+#version: "3.9"
+# Excluded version in order to use features in "docker compose" instead of docker-compose
+
+# Extension Fields
+x-environment: &default-tz-puid-pgid
+  TZ: $TZ
+  PUID: $PUID
+  PGID: $PGID
+

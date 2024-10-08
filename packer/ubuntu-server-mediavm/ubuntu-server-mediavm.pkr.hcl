@@ -44,7 +44,7 @@ source "proxmox" "ubuntu-server-mediavm" {
     scsi_controller = "virtio-scsi-pci"
 
     disks {
-        disk_size = "50G"
+        disk_size = "40G"
         format = "raw"
         storage_pool = "local-lvm"
         storage_pool_type = "lvm"
@@ -136,5 +136,5 @@ build {
         ]
     }
 
-    
+
 }
