@@ -7,7 +7,6 @@
     reponame: homeserversecrets
     dest: ~/homeserversecrets
     main: ~/homeserver
-    downloaddir: /data/downloads
   tasks:
     - name: Clone Private Git Repo
       ansible.builtin.git:
@@ -30,7 +29,7 @@
         msg: Testing {{ env_vars["CRONICLEKEY"] }}
     - name: Make Downloads directory
       ansible.builtin.file:
-        path: "{{ data_path }}"
+        path: {{ env_vars["DOWNLOADSDIR"] }}
         state: directory
         mode: '0666'
     - name: Run Docker Compose Up
