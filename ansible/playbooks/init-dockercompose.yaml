@@ -1,6 +1,5 @@
 ---
 - name: Playbook to download private secrets from github
-  become: true
   hosts: localhost
   connection: local
   vars:
