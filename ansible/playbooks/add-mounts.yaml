@@ -4,8 +4,11 @@
   hosts: localhost
   connection: local
   vars:
+    user: dan
+    group: dan
     mount_src: /dev/sdb
     mount_path: /data
+    data_path: /data/media
     media_src: /data/media:/mnt/media
     media_path: /media/media
     media_opts: cache.files=partial,dropcacheonclose=true,category.create=ff,moveonenospc=true,minfreespace=1G
@@ -35,6 +38,16 @@
         fstype: ext4
         state: mounted
       when: mount_src not in mounted_devices
+    - name: Create /data/media directory
+      ansible.builtin.file:
+        path: "{{ data_path }}"
+        state: directory
+        mode: '0755'
+    - name: Change Folder Ownership - data drive
+      ansible.builtin.file:
+        path: /data
+        owner: "{{ user }}"
+        group: "{{ group }}"
     - name: Mount mergerfs filesystem
       mount:
         path: "{{ media_path }}"
