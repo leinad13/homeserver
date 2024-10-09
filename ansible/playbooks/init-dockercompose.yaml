@@ -11,5 +11,5 @@
     - name: Clone Private Git Repo
       ansible.builtin.git:
         repo: "https://{{ token }}@github.com/{{ username }}/{{ reponame }}.git"
-        dest: "~/"
+        dest: "{{ dest }}"
         
