@@ -6,9 +6,14 @@
     username: leinad13
     reponame: homeserversecrets
     dest: ~/homeserversecrets
+    main: ~/homeserver
   tasks:
     - name: Clone Private Git Repo
       ansible.builtin.git:
         repo: "https://{{ token }}@github.com/{{ username }}/{{ reponame }}.git"
         dest: "{{ dest }}"
-        
+    - name: Copy .env File to Docker Compose Project Folder
+      ansible.builtin.copy:
+        src: "{{ dest }}/mediastack/.env"
+        dest: "{{ main }}/docker/mediastack"
+        backup: true
