@@ -44,7 +44,7 @@
     - name: Run Docker Compose Up
       become: true
       community.docker.docker_compose_v2:
-        project_src: "/home/{{ user }}/docker/mediastack"
+        project_src: /home/{{ user }}/docker/mediastack
         state: present
       register: output
     - name: Show Results
