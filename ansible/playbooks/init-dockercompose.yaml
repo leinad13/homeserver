@@ -18,15 +18,16 @@
         src: "{{ dest }}/mediastack/.env"
         dest: "{{ main }}/docker/mediastack"
         backup: true
-    - name: Get env file content
-      ansible.builtin.shell: ". {{ main }}/docker/mediastack/.env && env"
-      register: env_file_result
+    - name: Get env file content # https://stackoverflow.com/questions/60209185/ansible-environment-variables-from-env-file
+      ansible.builtin.slurp:
+        src: "{{ main }}/docker/mediastack/.env"
+      register: env_file_content
     - name: Parse Environment
-      set_fact:
-        env_vars: "{{ (env_file_result.content | b64decode).split('\n') | map('regex_replace', '^#.*', '') | select | map('regex_replace', '([^=]*)=(.*)', '\\1: \\2') | join('\n') | from_yaml }}"
+      ansible.builtin.set_fact:
+        env_vars: "{{ (env_file_content.content | b64decode).split('\n') | map('regex_replace', '^#.*', '') | select | map('regex_replace', '([^=]*)=(.*)', '\\1: \\2') | join('\n') | from_yaml }}"
     - name: Display Vars
-      command: env
-      environment: "{{ env_vars }}"
+      ansible.builtin.debug:
+        msg: Testing {{ env_vars["CRONICLEKEY"] }}
     - name: Make Downloads directory
       ansible.builtin.file:
         path: "{{ data_path }}"
