@@ -7,6 +7,8 @@
     reponame: homeserversecrets
     dest: ~/homeserversecrets
     main: ~/homeserver
+    user: dan
+    group : dan
   tasks:
     - name: Clone Private Git Repo
       ansible.builtin.git:
@@ -28,10 +30,17 @@
       ansible.builtin.debug:
         msg: Testing {{ env_vars["CRONICLEKEY"] }}
     - name: Make Downloads directory
+      become: true
       ansible.builtin.file:
         path: "{{ env_vars['DOWNLOADSDIR'] }}"
         state: directory
         mode: '0666'
+    - name: Change Downloads Directory Owner to dan
+      become: true
+      ansible.builtin.file:
+        path: "{{ env_vars['DOWNLOADSDIR'] }}"
+        owner: "{{ user }}"
+        group: "{{ group }}"
     - name: Run Docker Compose Up
       community.docker.docker_compose_v2:
         project_src: "{{ main }}/docker/mediastack"
