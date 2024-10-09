@@ -14,8 +14,8 @@ resource "local_file" "hosts_cfg" {
 
 resource "proxmox_vm_qemu" "mediavm1" {
 
-    name = "toolsvm"
-    desc = "Tools VM"
+    name = "mediavm1"
+    desc = "Media Server"
     vmid = "401"
     target_node = "proxmox"
     agent = 1

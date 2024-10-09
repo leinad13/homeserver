@@ -2,6 +2,7 @@
 .envrc
 credentials.pkr.hcl
 packer_cache
+hosts.cfg
 
 # Local .terraform directories
 **/.terraform/*
