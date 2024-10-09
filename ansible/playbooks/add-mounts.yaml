@@ -8,6 +8,7 @@
     group: dan
     mount_src: /dev/sdb
     mount_path: /data
+    nfs_path: /mnt/media
     data_path: /data/media
     media_src: /data/media:/mnt/media
     media_path: /media/media
@@ -45,7 +46,12 @@
         mode: '0755'
     - name: Change Folder Ownership - data drive
       ansible.builtin.file:
-        path: /data
+        path: "{{ data_path }}"
+        owner: "{{ user }}"
+        group: "{{ group }}"
+    - name: Change Folder Ownership - mount drive
+      ansible.builtin.file:
+        path: "{{ nfs_path }}"
         owner: "{{ user }}"
         group: "{{ group }}"
     - name: Mount mergerfs filesystem
