@@ -7,6 +7,7 @@
     reponame: homeserversecrets
     dest: ~/homeserversecrets
     main: ~/homeserver
+    downloaddir: /data/downloads
   tasks:
     - name: Clone Private Git Repo
       ansible.builtin.git:
@@ -17,3 +18,25 @@
         src: "{{ dest }}/mediastack/.env"
         dest: "{{ main }}/docker/mediastack"
         backup: true
+    - name: Get env file content
+      ansible.builtin.shell: ". {{ main }}/docker/mediastack/.env && env"
+      register: env_file_content
+    - name: Parse Environment
+      set_fact:
+        env_vars: "{{ (env_file_content.content | b64decode).split('\n') | map('regex_replace', '^#.*', '') | select | map('regex_replace', '([^=]*)=(.*)', '\\1: \\2') | join('\n') | from_yaml }}"
+    - name: Display Vars
+      command: env
+      environment: "{{ env_vars }}"
+    - name: Make Downloads directory
+      ansible.builtin.file:
+        path: "{{ data_path }}"
+        state: directory
+        mode: '0666'
+    - name: Run Docker Compose Up
+      community.docker.docker_compose_v2:
+        project_src: "{{ main }}/docker/mediastack"
+        state: present
+      register: output
+    - name: Show Results
+      ansible.builtin.debug:
+        var: output
