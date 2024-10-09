@@ -24,7 +24,8 @@ resource "proxmox_vm_qemu" "mediavm1" {
     cores = 4
     sockets = 1
     cpu = "host"
-    memory = 2048
+    memory = 6144
+    balloon = 2048
     
     network {
         bridge = "vmbr0"

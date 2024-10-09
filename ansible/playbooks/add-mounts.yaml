@@ -24,6 +24,11 @@
         src: ~/homeserver/conf/autofs/auto.nfs
         dest: /etc/auto.nfs
         backup: true
+    - name: Add Mount to auto.master file
+      ansible.builtin.lineinfile:
+        dest: /etc/auto.master
+        line: "/mnt    /etc/auto.nfs"
+        backup: true
     - name: Create List of mounted drives
       set_fact:
         mounted_devices: "{{ ansible_mounts|json_query('[].device') }}"

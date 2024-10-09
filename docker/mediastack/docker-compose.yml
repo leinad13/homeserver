@@ -7,3 +7,28 @@ x-environment: &default-tz-puid-pgid
   PUID: $PUID
   PGID: $PGID
 
+networks:
+  t2_proxy:
+    external:
+      name: t2_proxy
+  default:
+    driver: bridge
+
+# Services
+services:
+  # sonarr
+  sonarr:
+    container_name: Sonarr
+    image: lscr.io/linuxserver/sonarr:latest
+    environment:
+      - TZ=$TZ
+      - PUID=$PUID
+      - PGID=$PGID
+    volumes: 
+      - $DOCKERDIR/appdata/sonarr/config:/config
+      - $NASDIR/TV:/tv
+      - $DOWNLOADSDIR:/downloads
+    ports:
+      - 8989:8989
+    restart:
+      unless-stopped
